@@ -1,5 +1,5 @@
 const CACHE = 'airbnb-cal-v1';
-const ASSETS = ['/', '/index.html'];
+const ASSETS = ['/airbnbcalendarsync/', '/airbnbcalendarsync/index.html'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
