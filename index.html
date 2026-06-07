@@ -133,6 +133,8 @@
 <script>
 const CLIENT_ID = '728955993941-6h688ivamnffnetqfuo3jd14riftnjmd.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly';
+const REDIRECT_URI = 'https://Trevor-Davis.github.io/airbnbcalendarsync/';
+const IS_STANDALONE = window.navigator.standalone === true;
 
 const COLORS = [
   { name: 'Unit 1',    id: '11', hex: '#D50000', prefix: 'Unit 1 - ' },
@@ -216,40 +218,79 @@ document.getElementById('signout-btn').addEventListener('click', () => {
   showSignin();
 });
 
-function initTokenClient() {
-  const tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CLIENT_ID,
-    scope: SCOPES,
-    callback: (resp) => {
-      if (resp.error) { alert('Sign-in failed: ' + resp.error); return; }
-      accessToken = resp.access_token;
-      Promise.all([
-        fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: 'Bearer ' + accessToken } }).then(r => r.json()),
-        fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250', { headers: { Authorization: 'Bearer ' + accessToken } }).then(r => r.json())
-      ]).then(([info, calList]) => {
-        const calendars = (calList.items || []).sort((a,b) => a.summary.localeCompare(b.summary));
-        const select = document.getElementById('cal-select');
-        select.innerHTML = '';
-        calendars.forEach(c => {
-          const opt = document.createElement('option');
-          opt.value = c.id;
-          opt.textContent = c.summary;
-          if (c.summary === 'AirBnB Elmwood') {
-            opt.selected = true;
-            targetCalendarId = c.id;
-          }
-          select.appendChild(opt);
-        });
-        select.addEventListener('change', () => { targetCalendarId = select.value; });
-        if (!targetCalendarId && calendars.length) targetCalendarId = calendars[0].id;
-        showForm(info.email);
-      }).catch((e) => { showForm(); });
-    }
-  });
+function loadCalendarsAndShow() {
+  Promise.all([
+    fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: 'Bearer ' + accessToken } }).then(r => r.json()),
+    fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250', { headers: { Authorization: 'Bearer ' + accessToken } }).then(r => r.json())
+  ]).then(([info, calList]) => {
+    const calendars = (calList.items || []).sort((a,b) => a.summary.localeCompare(b.summary));
+    const select = document.getElementById('cal-select');
+    select.innerHTML = '';
+    calendars.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.summary;
+      if (c.summary === 'AirBnB Elmwood') {
+        opt.selected = true;
+        targetCalendarId = c.id;
+      }
+      select.appendChild(opt);
+    });
+    select.addEventListener('change', () => { targetCalendarId = select.value; });
+    if (!targetCalendarId && calendars.length) targetCalendarId = calendars[0].id;
+    showForm(info.email);
+  }).catch(() => { showForm(); });
+}
 
-  document.getElementById('signin-btn').addEventListener('click', () => {
-    tokenClient.requestAccessToken({ prompt: 'consent' });
+function handleRedirectToken() {
+  // Check if we're returning from a redirect auth
+  const hash = window.location.hash;
+  if (hash.includes('access_token')) {
+    const params = new URLSearchParams(hash.substring(1));
+    accessToken = params.get('access_token');
+    // Clean the URL
+    history.replaceState(null, '', REDIRECT_URI);
+    if (accessToken) {
+      loadCalendarsAndShow();
+      return true;
+    }
+  }
+  return false;
+}
+
+function doRedirectAuth() {
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    redirect_uri: REDIRECT_URI,
+    response_type: 'token',
+    scope: SCOPES,
+    prompt: 'consent'
   });
+  window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
+}
+
+function initTokenClient() {
+  // If returning from redirect, handle the token
+  if (handleRedirectToken()) return;
+
+  if (IS_STANDALONE) {
+    // On iPhone home screen — use redirect flow
+    document.getElementById('signin-btn').addEventListener('click', doRedirectAuth);
+  } else {
+    // In browser — use popup flow
+    const tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      callback: (resp) => {
+        if (resp.error) { alert('Sign-in failed: ' + resp.error); return; }
+        accessToken = resp.access_token;
+        loadCalendarsAndShow();
+      }
+    });
+    document.getElementById('signin-btn').addEventListener('click', () => {
+      tokenClient.requestAccessToken({ prompt: 'consent' });
+    });
+  }
 }
 
 function waitForGoogle() {
